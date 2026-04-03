@@ -1,0 +1,24 @@
+# Binaries
+bin/
+*.exe
+*.out
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Docker
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,174 @@
+version: "3.9"
+
+# ── Shared environment variables ──────────────────────────────────────────────
+x-common-env: &common-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USER: postgres
+  DB_PASSWORD: postgres
+  DB_NAME: ecommerce
+  KAFKA_BROKERS: kafka:9092
+  JWT_SECRET: change-me-in-production
+  USER_SERVICE_ADDR: user-service:50051
+  PRODUCT_SERVICE_ADDR: product-service:50052
+  ORDER_SERVICE_ADDR: order-service:50053
+  PAYMENT_SERVICE_ADDR: payment-service:50054
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ecommerce
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"       # internal (service-to-service)
+      - "29092:29092"     # external (host access / debugging)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
+  # ── Microservices ────────────────────────────────────────────────────────────
+
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      GRPC_PORT: "50051"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "50051:50051"
+
+  product-service:
+    build:
+      context: .
+      dockerfile: services/product-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      GRPC_PORT: "50052"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "50052:50052"
+
+  order-service:
+    build:
+      context: .
+      dockerfile: services/order-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      GRPC_PORT: "50053"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "50053:50053"
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      GRPC_PORT: "50054"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "50054:50054"
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      HTTP_PORT: "8080"
+    depends_on:
+      - user-service
+      - product-service
+      - order-service
+      - payment-service
+    ports:
+      - "8080:8080"
+
+volumes:
+  postgres_data:
+  kafka_data:
+  zookeeper_data:
