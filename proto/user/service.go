@@ -18,7 +18,7 @@ type UserServiceServer interface {
 	mustEmbedUnimplementedUserServiceServer()
 }
 
-// UnimplementedUserServiceServer must be embedded for forward compatibility.
+// UnimplementedUserServiceServer was embedded for forward compatibility.
 type UnimplementedUserServiceServer struct{}
 
 func (UnimplementedUserServiceServer) Register(context.Context, *RegisterRequest) (*RegisterResponse, error) {

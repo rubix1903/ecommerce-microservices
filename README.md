@@ -1,214 +1,143 @@
-# 🛒 E-Commerce Microservices — Go + gRPC + Kafka + Docker
+# E-Commerce Microservices Backend
 
-A production-style microservices backend built in Go, demonstrating distributed systems patterns including synchronous gRPC communication, asynchronous Kafka messaging, JWT auth, and Docker containerisation.
+A production-style distributed e-commerce backend built in Go, demonstrating real-world microservices patterns including synchronous gRPC communication, asynchronous event-driven architecture with Kafka, JWT authentication, and full Docker containerisation.
 
 ---
 
 ## Architecture
 
 ```
-           ┌─────────────────────────────────────────────────┐
-           │                  CLIENT (curl / Postman)         │
-           └───────────────────────┬─────────────────────────┘
-                                   │  HTTP/REST
-                    ┌──────────────▼──────────────┐
-                    │         API Gateway          │
-                    │     (Gin • Port 8080)        │
-                    └──┬──────┬──────┬──────┬──────┘
-                       │gRPC  │gRPC  │gRPC  │gRPC
-              ┌────────▼─┐ ┌──▼────┐ ┌▼────────┐ ┌▼──────────┐
-              │  User    │ │Product│ │  Order  │ │  Payment  │
-              │ Service  │ │Service│ │ Service │ │  Service  │
-              │ :50051   │ │:50052 │ │ :50053  │ │  :50054   │
-              └────┬─────┘ └──┬────┘ └──┬──────┘ └──────┬────┘
-                   │          │         │ publish        │ publish
-                   │          │  ┌──────▼────────────────▼────┐
-                   │          │  │         Apache Kafka        │
-                   │          │  │  • order.created           │
-                   │          │  │  • payment.processed       │
-                   │          │  │  • payment.failed          │
-                   │          │  └──────────────┬─────────────┘
-                   │          │                 │ consume
-                   │          │        ┌────────▼────────┐
-                   │          │        │  Notification   │
-                   │          │        │    Service      │
-                   │          │        └─────────────────┘
-                   │          │
-              ┌────▼──────────▼─────────────┐
-              │        PostgreSQL            │
-              │  (shared; one schema/svc)    │
-              └─────────────────────────────┘
+           ┌─────────────────────────────────────┐
+           │           Client (REST)             │
+           └─────────────────┬───────────────────┘
+                             │ HTTP/JSON
+              ┌──────────────▼──────────────┐
+              │         API Gateway         │
+              │      Gin · JWT Auth         │
+              └──┬─────────┬────────┬───────┘
+                 │ gRPC    │ gRPC   │ gRPC
+        ┌────────▼─┐  ┌────▼────┐ ┌▼──────────┐ ┌────────────┐
+        │  User    │  │Product  │ │  Order    │ │  Payment   │
+        │ Service  │  │Service  │ │  Service  │ │  Service   │
+        └──────────┘  └─────────┘ └─────┬─────┘ └─────┬──────┘
+                                         │publish       │publish
+                                  ┌──────▼──────────────▼──────┐
+                                  │         Apache Kafka       │
+                                  │  • order.created           │
+                                  │  • payment.processed       │
+                                  │  • payment.failed          │
+                                  └──────────────┬─────────────┘
+                                                 │ consume
+                                        ┌────────▼────────┐
+                                        │  Notification   │
+                                        │    Service      │
+                                        └─────────────────┘
+                                  ┌──────────────────────────┐
+                                  │        PostgreSQL        │
+                                  └──────────────────────────┘
 ```
 
-### Service responsibilities
+---
 
-| Service | Port | Role |
-|---|---|---|
-| **api-gateway** | 8080 | REST → gRPC translation, JWT validation, CORS |
-| **user-service** | 50051 | Registration, login, JWT issuance, user profiles |
-| **product-service** | 50052 | Product catalog, stock management (atomic deduction) |
-| **order-service** | 50053 | Order creation, publishes `order.created` to Kafka |
-| **payment-service** | 50054 | Consumes `order.created`, processes payments, publishes result |
-| **notification-service** | — | Consumes payment events, sends email/SMS (simulated) |
+## Services
 
-### Infrastructure
-
-| Component | Purpose |
+| Service | Role |
 |---|---|
-| **PostgreSQL 16** | Persistent storage for all services |
-| **Apache Kafka** | Async event bus (order → payment → notification) |
-| **Kafka UI** | Browse topics and messages at `localhost:8090` |
+| **api-gateway** | Single entry point — translates REST to gRPC, validates JWT tokens |
+| **user-service** | User registration, login, and JWT issuance |
+| **product-service** | Product catalog with atomic stock management |
+| **order-service** | Order creation, orchestrates product and payment flow |
+| **payment-service** | Processes payments asynchronously via Kafka |
+| **notification-service** | Sends email/SMS notifications on payment events |
 
 ---
 
-## Prerequisites
+## Tech Stack
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker + Docker Compose)
-- [GoLand](https://www.jetbrains.com/go/) (JetBrains IDE — you're using this)
-- `make` (built into macOS/Linux; Windows: use Git Bash or WSL)
-- `curl` + [`jq`](https://jqlang.github.io/jq/) for the seed script (optional)
-
----
-
-## Quick Start
-
-```bash
-# 1. Clone / open the project in GoLand
-cd ecommerce-microservices
-
-# 2. Start everything
-make up
-
-# 3. Wait ~30 seconds for Kafka to be ready, then seed sample data
-make seed
-
-# 4. Browse Kafka topics
-open http://localhost:8090
-```
+| Technology | Purpose |
+|---|---|
+| **Go** | All services — chosen for performance and built-in concurrency |
+| **gRPC** | Synchronous service-to-service communication |
+| **Apache Kafka** | Async event bus for order → payment → notification flow |
+| **PostgreSQL** | Persistent storage for all services |
+| **Docker + Compose** | Containerisation and local orchestration |
+| **JWT** | Stateless authentication at the API gateway |
+| **GORM** | ORM with auto-migration |
+| **Gin** | HTTP framework for the REST gateway |
 
 ---
 
-## Running in GoLand (JetBrains)
+## Async Order Flow
 
-### Option A — Run via Docker Compose (recommended)
-
-1. Open the project folder in GoLand.
-2. In the **Project** panel, right-click `docker-compose.yml` → **Run 'docker-compose.yml'**.
-3. GoLand will show all containers in the **Services** tab.
-
-### Option B — Run individual services locally (for debugging)
-
-Set these environment variables in each **Run Configuration**:
+The most interesting part of the system — placing an order triggers a chain of async events:
 
 ```
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=ecommerce
-KAFKA_BROKERS=localhost:29092
-JWT_SECRET=change-me-in-production
-USER_SERVICE_ADDR=localhost:50051
-PRODUCT_SERVICE_ADDR=localhost:50052
-ORDER_SERVICE_ADDR=localhost:50053
-PAYMENT_SERVICE_ADDR=localhost:50054
+POST /orders
+    │
+    ├── gRPC → product-service   (validate product, deduct stock atomically)
+    ├── Save order to PostgreSQL (status: pending)
+    └── Publish → Kafka: order.created
+                            │
+                    payment-service (consumes async)
+                            ├── Processes payment via mock gateway
+                            ├── Save payment to PostgreSQL
+                            └── Publish → Kafka: payment.processed
+                                                    │
+                                        notification-service
+                                                    └── Send email/SMS
 ```
 
-Start infrastructure only first:
-```bash
-docker compose up postgres kafka zookeeper -d
-```
+The client receives a `201 Created` with the order ID **immediately** — payment processing happens in the background. This is the same pattern used by real e-commerce platforms like Amazon and Flipkart.
 
-Then run each service from GoLand using its `main.go`.
+---
+
+## Key Design Decisions
+
+**gRPC for internal communication**
+Services communicate using gRPC with a custom JSON codec. This gives strongly typed contracts between services, making it easy to catch breaking changes at compile time rather than at runtime.
+
+**Kafka for async payment processing**
+Decoupling order creation from payment processing means the system stays responsive under load. If the payment service goes down, orders are queued in Kafka and processed when it recovers — no data loss.
+
+**Atomic stock deduction**
+The product service uses `SELECT FOR UPDATE` inside a database transaction to prevent race conditions. Two concurrent orders for the last item in stock cannot both succeed.
+
+**Idempotent payments**
+The payment service checks for an existing payment before processing. This makes it safe to retry failed Kafka deliveries without charging the customer twice.
+
+**JWT validation at the gateway only**
+Internal gRPC calls are trusted within the Docker network. Only the API gateway validates tokens, keeping internal services simple. Production would add mTLS for internal service authentication.
 
 ---
 
 ## API Reference
 
-All protected routes require `Authorization: Bearer <token>`.
+All endpoints except `/auth/*` require `Authorization: Bearer <token>`.
 
 ### Auth
-
-```bash
-# Register
-curl -X POST http://localhost:8080/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Alice","email":"alice@example.com","password":"secret123"}'
-
-# Login → returns token
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"alice@example.com","password":"secret123"}'
-```
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/v1/auth/register` | Create a new user account |
+| POST | `/api/v1/auth/login` | Login and receive a JWT token |
 
 ### Products
-
-```bash
-# Create product
-curl -X POST http://localhost:8080/api/v1/products \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"MacBook Pro","description":"M3 chip","price":2499.99,"stock":50}'
-
-# List products
-curl http://localhost:8080/api/v1/products?page=1&limit=10 \
-  -H "Authorization: Bearer $TOKEN"
-
-# Get product by ID
-curl http://localhost:8080/api/v1/products/<product_id> \
-  -H "Authorization: Bearer $TOKEN"
-```
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/v1/products` | Add a product to the catalog |
+| GET | `/api/v1/products` | List all products (paginated) |
+| GET | `/api/v1/products/:id` | Get a single product |
 
 ### Orders
-
-```bash
-# Place order (triggers Kafka → async payment)
-curl -X POST http://localhost:8080/api/v1/orders \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"product_id":"<product_id>","quantity":2}'
-
-# List my orders
-curl http://localhost:8080/api/v1/orders \
-  -H "Authorization: Bearer $TOKEN"
-```
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/v1/orders` | Place an order (triggers async payment) |
+| GET | `/api/v1/orders` | List current user's orders |
+| GET | `/api/v1/orders/:id` | Get a single order |
 
 ### Payments
-
-```bash
-# Get payment by ID (returned from order or from DB)
-curl http://localhost:8080/api/v1/payments/<payment_id> \
-  -H "Authorization: Bearer $TOKEN"
-```
-
----
-
-## How the async flow works
-
-```
-POST /orders
-  │
-  ├─► order-service (gRPC)
-  │     ├─ validates product (gRPC → product-service)
-  │     ├─ deducts stock    (gRPC → product-service)
-  │     ├─ persists order   (PostgreSQL)
-  │     └─ publishes ──────────────────────────────┐
-  │                                                 │ Kafka: order.created
-  │                                            ┌────▼───────────────────┐
-  │                                            │    payment-service     │
-  │                                            │  (Kafka consumer)      │
-  │                                            │  ├─ calls mock gateway │
-  │                                            │  ├─ persists payment   │
-  │                                            │  └─ publishes ─────────┤
-  │                                            └────────────────────────┘
-  │                                       Kafka: payment.processed / failed
-  │                                            ┌────▼───────────────────┐
-  │                                            │ notification-service   │
-  │                                            │  └─ logs email/SMS     │
-  │                                            └────────────────────────┘
-  │
-  └─► 201 Created (order ID returned immediately — payment is async)
-```
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/v1/payments/:id` | Get payment status by ID |
 
 ---
 
@@ -216,58 +145,54 @@ POST /orders
 
 ```
 ecommerce-microservices/
-├── docker-compose.yml          # Full system orchestration
-├── Makefile                    # Dev workflow shortcuts
-├── go.mod                      # Single Go module for all services
-│
-├── proto/                      # gRPC service contracts (hand-written; no protoc needed)
-│   ├── user/                   # types.go + service.go (client, server, ServiceDesc)
+├── proto/                  # gRPC service contracts (types, client, server)
+│   ├── user/
 │   ├── product/
 │   ├── order/
 │   └── payment/
-│
-├── shared/                     # Cross-cutting packages
-│   ├── codec/                  # JSON gRPC codec (replaces protobuf wire format)
-│   ├── config/                 # Env-based config loader
-│   ├── events/                 # Kafka event payload types
-│   ├── kafka/                  # Producer & consumer helpers
-│   └── middleware/             # JWT auth middleware + token generator
-│
-└── services/
-    ├── api-gateway/            # HTTP → gRPC translation layer
-    ├── user-service/           # Register, login, JWT
-    ├── product-service/        # Catalog + atomic stock
-    ├── order-service/          # Order orchestration + Kafka publisher
-    ├── payment-service/        # Kafka consumer + mock gateway + gRPC
-    └── notification-service/   # Kafka consumer → email/SMS simulation
+├── shared/                 # Shared packages used across services
+│   ├── codec/              # Custom JSON gRPC codec
+│   ├── config/             # Environment-based configuration
+│   ├── events/             # Kafka event payload definitions
+│   ├── kafka/              # Producer and consumer helpers
+│   └── middleware/         # JWT authentication middleware
+├── services/
+│   ├── api-gateway/        # REST → gRPC translation layer
+│   ├── user-service/
+│   ├── product-service/
+│   ├── order-service/
+│   ├── payment-service/
+│   └── notification-service/
+└── docker-compose.yml
 ```
 
 ---
 
-## Key design decisions worth explaining in interviews
+## Results
 
-| Decision | Why |
-|---|---|
-| **gRPC for synchronous calls** | Strongly typed contracts, low latency, bi-directional streaming support |
-| **Kafka for async events** | Decouples order creation from payment — order returns instantly; payment happens async |
-| **JSON gRPC codec** | Eliminates protoc toolchain requirement; swap for protobuf in production |
-| **Atomic stock deduction** | `SELECT FOR UPDATE` inside a DB transaction prevents overselling |
-| **Idempotent payments** | Checks for existing payment before processing — safe to retry |
-| **Outbox pattern note** | If Kafka publish fails after DB write, order is persisted but payment won't trigger. Production fix: write event to DB in same transaction, publish via outbox worker |
-| **JWT in gateway only** | Services trust the gateway; internal gRPC calls are unauthenticated (mTLS in production) |
+### Kafka Cluster Online — 4 Topics Active
+
+![Kafka Dashboard](screenshots/kafka-dashboard.png)
+
+Kafka broker running with all 3 application topics auto-created: `order.created`, `payment.processed`, and `payment.failed`.
 
 ---
 
-## Makefile Commands
+### Kafka Topics — Messages Flowing
 
-| Command | Description |
-|---|---|
-| `make up` | Build and start all services |
-| `make down` | Stop all services |
-| `make logs` | Stream all logs |
-| `make logs-svc SVC=order-service` | Stream logs for one service |
-| `make restart SVC=payment-service` | Restart one service |
-| `make seed` | Seed sample user, product, and order |
-| `make clean` | Remove containers, volumes, and images |
-| `make tidy` | `go mod tidy` |
-| `make test` | Run all unit tests |
+![Kafka Topics](screenshots/kafka-topics-full.png)
+
+After placing an order:
+- `order.created` — **1 message** (published by order-service)
+- `payment.processed` — **1 message** (published by payment-service after consuming `order.created`)
+- `payment.failed` — **0 messages** (payment succeeded this time)
+
+This confirms the full async chain is working: order → Kafka → payment → Kafka → notification.
+
+---
+
+### order.created Message Payload
+
+![order.created Message](screenshots/kafka-order-created.png)
+
+The raw event published to Kafka by the order-service, containing `order_id`, `user_id`, `product_id`, `quantity`, `amount`, and `created_at`. The payment-service consumes this event and processes the payment asynchronously.

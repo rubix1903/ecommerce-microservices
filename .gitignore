@@ -5,7 +5,7 @@ bin/
 
 # Go
 vendor/
-
+go.mod/
 # IDE
 .idea/
 .vscode/
@@ -13,11 +13,13 @@ vendor/
 
 # Env
 .env
-.env.*
-!.env.example
 
 # Docker
 docker-compose.override.yml
+
+#json
+body.json
+ecommerce.postman_collection.json
 
 # OS
 .DS_Store

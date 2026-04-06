@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/ecommerce/microservices/shared/codec"
+	paymentpb "github.com/ecommerce/microservices/proto/payment"
+	"github.com/ecommerce/microservices/shared/codec"
 	"github.com/ecommerce/microservices/shared/config"
 	"github.com/ecommerce/microservices/shared/events"
 	appkafka "github.com/ecommerce/microservices/shared/kafka"
-	paymentpb "github.com/ecommerce/microservices/proto/payment"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
@@ -24,20 +24,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// ─── Model ───────────────────────────────────────────────────────────────────
-
 type Payment struct {
-	ID          string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	OrderID     string    `gorm:"uniqueIndex;not null"`
-	UserID      string    `gorm:"not null;index"`
-	Amount      float64   `gorm:"not null"`
-	Status      string    `gorm:"not null"` // success|failed|pending
-	Gateway     string    `gorm:"default:'mock'"`
+	ID          string  `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	OrderID     string  `gorm:"uniqueIndex;not null"`
+	UserID      string  `gorm:"not null;index"`
+	Amount      float64 `gorm:"not null"`
+	Status      string  `gorm:"not null"`
+	Gateway     string  `gorm:"default:'mock'"`
 	ProcessedAt time.Time
 	CreatedAt   time.Time
 }
-
-// ─── gRPC Handler ─────────────────────────────────────────────────────────────
 
 type PaymentHandler struct {
 	paymentpb.UnimplementedPaymentServiceServer
@@ -49,12 +45,11 @@ func NewPaymentHandler(db *gorm.DB, kp *appkafka.Producer) *PaymentHandler {
 	return &PaymentHandler{db: db, kafkaProducer: kp}
 }
 
-// ProcessPayment handles a direct gRPC payment call (e.g. from api-gateway).
 func (h *PaymentHandler) ProcessPayment(ctx context.Context, req *paymentpb.ProcessPaymentRequest) (*paymentpb.ProcessPaymentResponse, error) {
 	if req.OrderID == "" || req.Amount <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "order_id and amount > 0 required")
 	}
-	return h.doProcessPayment(ctx, req.OrderID, req.UserID, req.Amount)
+	return h.doProcess(ctx, req.OrderID, req.UserID, req.Amount)
 }
 
 func (h *PaymentHandler) GetPayment(_ context.Context, req *paymentpb.GetPaymentRequest) (*paymentpb.Payment, error) {
@@ -65,93 +60,52 @@ func (h *PaymentHandler) GetPayment(_ context.Context, req *paymentpb.GetPayment
 		}
 		return nil, status.Error(codes.Internal, "database error")
 	}
-	return toProtoPayment(&p), nil
+	return &paymentpb.Payment{ID: p.ID, OrderID: p.OrderID, UserID: p.UserID, Amount: p.Amount, Status: p.Status, Gateway: p.Gateway, ProcessedAt: p.ProcessedAt}, nil
 }
 
-// doProcessPayment contains the shared payment logic used by both gRPC and Kafka paths.
-func (h *PaymentHandler) doProcessPayment(ctx context.Context, orderID, userID string, amount float64) (*paymentpb.ProcessPaymentResponse, error) {
-	// Idempotency: return existing payment if already processed
+func (h *PaymentHandler) doProcess(ctx context.Context, orderID, userID string, amount float64) (*paymentpb.ProcessPaymentResponse, error) {
 	var existing Payment
 	if err := h.db.Where("order_id = ?", orderID).First(&existing).Error; err == nil {
-		return &paymentpb.ProcessPaymentResponse{
-			PaymentID: existing.ID, Status: existing.Status,
-			Message: "payment already processed", Amount: existing.Amount,
-		}, nil
+		return &paymentpb.ProcessPaymentResponse{PaymentID: existing.ID, Status: existing.Status, Amount: existing.Amount, Message: "already processed"}, nil
 	}
-
-	// Simulate a payment gateway call (95% success rate)
-	paymentStatus := "success"
+	payStatus := "success"
 	if rand.Float32() < 0.05 {
-		paymentStatus = "failed"
+		payStatus = "failed"
 	}
-
-	payment := &Payment{
-		OrderID:     orderID,
-		UserID:      userID,
-		Amount:      amount,
-		Status:      paymentStatus,
-		Gateway:     "mock-gateway",
-		ProcessedAt: time.Now(),
-	}
-	if err := h.db.Create(payment).Error; err != nil {
+	p := &Payment{OrderID: orderID, UserID: userID, Amount: amount, Status: payStatus, Gateway: "mock", ProcessedAt: time.Now()}
+	if err := h.db.Create(p).Error; err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to persist payment: %v", err)
 	}
-
-	// Publish result to Kafka (notification-service and order-service consume this)
-	if paymentStatus == "success" {
-		evt := events.PaymentProcessedEvent{
-			PaymentID: payment.ID, OrderID: orderID, UserID: userID,
-			Amount: amount, Status: "success", ProcessedAt: payment.ProcessedAt,
-		}
-		if err := h.kafkaProducer.Publish(ctx, events.TopicPaymentProcessed, payment.ID, evt); err != nil {
-			log.Printf("⚠  payment-service: failed to publish payment.processed: %v", err)
-		}
+	if payStatus == "success" {
+		h.kafkaProducer.Publish(ctx, events.TopicPaymentProcessed, p.ID, events.PaymentProcessedEvent{
+			PaymentID: p.ID, OrderID: orderID, UserID: userID, Amount: amount, Status: "success", ProcessedAt: p.ProcessedAt,
+		})
 	} else {
-		evt := events.PaymentFailedEvent{
-			PaymentID: payment.ID, OrderID: orderID, UserID: userID,
-			Reason: "card declined (simulated)", FailedAt: payment.ProcessedAt,
-		}
-		if err := h.kafkaProducer.Publish(ctx, events.TopicPaymentFailed, payment.ID, evt); err != nil {
-			log.Printf("⚠  payment-service: failed to publish payment.failed: %v", err)
-		}
+		h.kafkaProducer.Publish(ctx, events.TopicPaymentFailed, p.ID, events.PaymentFailedEvent{
+			PaymentID: p.ID, OrderID: orderID, UserID: userID, Reason: "card declined (simulated)", FailedAt: p.ProcessedAt,
+		})
 	}
-
-	log.Printf("💳 payment %s → %s (order: %s, amount: %.2f)", payment.ID, paymentStatus, orderID, amount)
-	return &paymentpb.ProcessPaymentResponse{
-		PaymentID: payment.ID, Status: paymentStatus,
-		Message: "payment " + paymentStatus, Amount: amount,
-	}, nil
+	log.Printf("💳 payment %s → %s (order: %s)", p.ID, payStatus, orderID)
+	return &paymentpb.ProcessPaymentResponse{PaymentID: p.ID, Status: payStatus, Amount: amount, Message: "payment " + payStatus}, nil
 }
 
-// ─── Kafka Consumer ───────────────────────────────────────────────────────────
-
-// startKafkaConsumer listens for order.created events and triggers payment processing.
-func startKafkaConsumer(ctx context.Context, handler *PaymentHandler, cfg *config.Config) {
-	consumer := appkafka.NewConsumer(cfg.KafkaBrokers, events.TopicOrderCreated, "payment-service-group")
-	defer consumer.Close()
-
-	consumer.Consume(ctx, func(ctx context.Context, key string, payload []byte) error {
+func startKafkaConsumer(ctx context.Context, h *PaymentHandler, cfg *config.Config) {
+	c := appkafka.NewConsumer(cfg.KafkaBrokers, events.TopicOrderCreated, "payment-service-group")
+	defer c.Close()
+	c.Consume(ctx, func(ctx context.Context, key string, payload []byte) error {
 		var evt events.OrderCreatedEvent
 		if err := appkafka.Unmarshal(payload, &evt); err != nil {
-			log.Printf("⚠  payment-service: failed to unmarshal order.created: %v", err)
-			return nil // don't retry bad messages
+			return nil
 		}
-		log.Printf("📨 payment-service received order.created for order %s", evt.OrderID)
-		_, err := handler.doProcessPayment(ctx, evt.OrderID, evt.UserID, evt.Amount)
+		log.Printf("📨 payment-service: processing order %s", evt.OrderID)
+		_, err := h.doProcess(ctx, evt.OrderID, evt.UserID, evt.Amount)
 		return err
 	})
 }
 
-func toProtoPayment(p *Payment) *paymentpb.Payment {
-	return &paymentpb.Payment{
-		ID: p.ID, OrderID: p.OrderID, UserID: p.UserID,
-		Amount: p.Amount, Status: p.Status, Gateway: p.Gateway, ProcessedAt: p.ProcessedAt,
-	}
-}
-
-// ─── Main ────────────────────────────────────────────────────────────────────
-
 func main() {
+	codec.Register() // must be first
+
 	cfg := config.Load()
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{})
@@ -165,12 +119,9 @@ func main() {
 	defer producer.Close()
 
 	handler := NewPaymentHandler(db, producer)
-
-	// Start Kafka consumer in background
 	ctx, cancel := context.WithCancel(context.Background())
 	go startKafkaConsumer(ctx, handler, cfg)
 
-	// Also expose a gRPC endpoint for direct payment calls
 	port := os.Getenv("GRPC_PORT")
 	if port == "" {
 		port = "50054"
@@ -184,7 +135,7 @@ func main() {
 	paymentpb.RegisterPaymentServiceServer(srv, handler)
 	reflection.Register(srv)
 
-	log.Printf("🚀 payment-service: gRPC on :%s + Kafka consumer on %s", port, events.TopicOrderCreated)
+	log.Printf("🚀 payment-service: gRPC on :%s + Kafka consumer", port)
 	go func() {
 		if err := srv.Serve(lis); err != nil {
 			log.Fatalf("❌ payment-service: serve error: %v", err)

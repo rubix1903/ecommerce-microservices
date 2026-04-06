@@ -1,6 +1,5 @@
 version: "3.9"
 
-# ── Shared environment variables ──────────────────────────────────────────────
 x-common-env: &common-env
   DB_HOST: postgres
   DB_PORT: "5432"
@@ -15,8 +14,6 @@ x-common-env: &common-env
   PAYMENT_SERVICE_ADDR: payment-service:50054
 
 services:
-
-  # ── Infrastructure ──────────────────────────────────────────────────────────
 
   postgres:
     image: postgres:16-alpine
@@ -50,8 +47,8 @@ services:
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"       # internal (service-to-service)
-      - "29092:29092"     # external (host access / debugging)
+      - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -62,11 +59,6 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     volumes:
       - kafka_data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
-      interval: 10s
-      timeout: 10s
-      retries: 10
 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
@@ -79,13 +71,11 @@ services:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
 
-  # ── Microservices ────────────────────────────────────────────────────────────
-
   user-service:
     build:
       context: .
       dockerfile: services/user-service/Dockerfile
-    restart: unless-stopped
+    restart: on-failure
     environment:
       <<: *common-env
       GRPC_PORT: "50051"
@@ -99,7 +89,7 @@ services:
     build:
       context: .
       dockerfile: services/product-service/Dockerfile
-    restart: unless-stopped
+    restart: on-failure
     environment:
       <<: *common-env
       GRPC_PORT: "50052"
@@ -113,7 +103,7 @@ services:
     build:
       context: .
       dockerfile: services/order-service/Dockerfile
-    restart: unless-stopped
+    restart: on-failure
     environment:
       <<: *common-env
       GRPC_PORT: "50053"
@@ -121,7 +111,7 @@ services:
       postgres:
         condition: service_healthy
       kafka:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "50053:50053"
 
@@ -129,7 +119,7 @@ services:
     build:
       context: .
       dockerfile: services/payment-service/Dockerfile
-    restart: unless-stopped
+    restart: on-failure
     environment:
       <<: *common-env
       GRPC_PORT: "50054"
@@ -137,7 +127,7 @@ services:
       postgres:
         condition: service_healthy
       kafka:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "50054:50054"
 
@@ -145,18 +135,18 @@ services:
     build:
       context: .
       dockerfile: services/notification-service/Dockerfile
-    restart: unless-stopped
+    restart: on-failure
     environment:
       <<: *common-env
     depends_on:
       kafka:
-        condition: service_healthy
+        condition: service_started
 
   api-gateway:
     build:
       context: .
       dockerfile: services/api-gateway/Dockerfile
-    restart: unless-stopped
+    restart: on-failure
     environment:
       <<: *common-env
       HTTP_PORT: "8080"

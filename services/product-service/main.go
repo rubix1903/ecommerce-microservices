@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/ecommerce/microservices/shared/codec"
-	"github.com/ecommerce/microservices/shared/config"
 	productpb "github.com/ecommerce/microservices/proto/product"
+	"github.com/ecommerce/microservices/shared/codec"
+	"github.com/ecommerce/microservices/shared/config"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
@@ -24,8 +24,8 @@ import (
 // ─── Model ───────────────────────────────────────────────────────────────────
 
 type Product struct {
-	ID          string    `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
-	Name        string    `gorm:"not null"`
+	ID          string `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
+	Name        string `gorm:"not null"`
 	Description string
 	Price       float64 `gorm:"not null"`
 	Stock       int32   `gorm:"not null;default:0"`
@@ -73,15 +73,13 @@ func (h *ProductHandler) ListProducts(_ context.Context, req *productpb.ListProd
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
-	offset := (page - 1) * limit
 
 	var products []Product
 	var total int64
 	h.db.Model(&Product{}).Count(&total)
-	if err := h.db.Offset(int(offset)).Limit(int(limit)).Find(&products).Error; err != nil {
+	if err := h.db.Offset(int((page - 1) * limit)).Limit(int(limit)).Find(&products).Error; err != nil {
 		return nil, status.Error(codes.Internal, "failed to list products")
 	}
-
 	out := make([]*productpb.Product, len(products))
 	for i, p := range products {
 		out[i] = toProtoProduct(&p)
@@ -89,13 +87,10 @@ func (h *ProductHandler) ListProducts(_ context.Context, req *productpb.ListProd
 	return &productpb.ListProductsResponse{Products: out, Total: total}, nil
 }
 
-// DeductStock atomically reduces the stock for an ordered product.
-// Uses a DB transaction to prevent race conditions with concurrent orders.
 func (h *ProductHandler) DeductStock(_ context.Context, req *productpb.DeductStockRequest) (*productpb.DeductStockResponse, error) {
 	var remaining int32
 	err := h.db.Transaction(func(tx *gorm.DB) error {
 		var p Product
-		// SELECT ... FOR UPDATE prevents concurrent over-deductions
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&p, "id = ?", req.ProductID).Error; err != nil {
 			return err
 		}
@@ -122,15 +117,15 @@ func toProtoProduct(p *Product) *productpb.Product {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 func main() {
+	codec.Register() // must be first
+
 	cfg := config.Load()
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("❌ product-service: DB connect failed: %v", err)
 	}
-	if err := db.AutoMigrate(&Product{}); err != nil {
-		log.Fatalf("❌ product-service: automigrate failed: %v", err)
-	}
+	db.AutoMigrate(&Product{})
 	log.Println("✅ product-service: database connected")
 
 	port := os.Getenv("GRPC_PORT")

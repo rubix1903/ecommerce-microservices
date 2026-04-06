@@ -10,7 +10,7 @@ import (
 )
 
 // openTestDB creates an in-memory SQLite database for testing.
-// We use SQLite here to avoid needing a running Postgres in CI.
+// I used SQLite here to avoid needing a running Postgres in CI.
 func openTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

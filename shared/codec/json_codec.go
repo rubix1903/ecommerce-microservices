@@ -1,6 +1,4 @@
 // Package codec registers a JSON codec as the default gRPC codec.
-// This lets us use plain Go structs for gRPC messages instead of requiring
-// protoc-generated code. In production, swap this for protobuf for performance.
 package codec
 
 import (
@@ -9,21 +7,15 @@ import (
 	"google.golang.org/grpc/encoding"
 )
 
-func init() {
-	// Registering with name "proto" replaces the default protobuf codec.
-	encoding.RegisterCodec(JSONCodec{})
-}
-
 // JSONCodec implements the gRPC encoding.Codec interface using encoding/json.
 type JSONCodec struct{}
 
-func (JSONCodec) Marshal(v interface{}) ([]byte, error) {
-	return json.Marshal(v)
-}
+func (JSONCodec) Marshal(v interface{}) ([]byte, error)      { return json.Marshal(v) }
+func (JSONCodec) Unmarshal(data []byte, v interface{}) error { return json.Unmarshal(data, v) }
+func (JSONCodec) Name() string                               { return "proto" }
 
-func (JSONCodec) Unmarshal(data []byte, v interface{}) error {
-	return json.Unmarshal(data, v)
+// Register installs the JSON codec as the active gRPC codec.
+// Calls this as the FIRST line in every service's main() — before any grpc.NewServer or grpc.Dial.
+func Register() {
+	encoding.RegisterCodec(JSONCodec{})
 }
-
-// Name returns "proto" so it replaces the default gRPC codec.
-func (JSONCodec) Name() string { return "proto" }
