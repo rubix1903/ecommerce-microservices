@@ -5,7 +5,8 @@ bin/
 
 # Go
 vendor/
-go.mod/
+go.mod
+go.sum
 
 # IDE
 .idea/
