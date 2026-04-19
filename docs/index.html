@@ -355,7 +355,6 @@
 <!-- ── HERO ─────────────────────────────────────────────────────────── -->
 <div class="wrap">
     <div class="hero">
-        <div class="hero-label">Distributed Backend Engineering</div>
         <h1>E-Commerce<br/>Microservices Backend</h1>
         <p class="hero-desc">
             A production-style distributed e-commerce backend in Go — 6 services communicating over gRPC,
@@ -402,7 +401,7 @@
 <!-- ── 01 SERVICES ──────────────────────────────────────────────────── -->
 <div class="wrap">
     <div class="section" id="services">
-        <div class="sec-eyebrow">// 01 — SERVICES</div>
+        <div class="sec-eyebrow">SERVICES</div>
         <div class="sec-title">Six Services, One System</div>
 
         <div class="services-grid">
@@ -443,7 +442,7 @@
 <!-- ── 02 ARCHITECTURE ───────────────────────────────────────────────── -->
 <div class="wrap">
     <div class="section" id="architecture">
-        <div class="sec-eyebrow">// 02 — ARCHITECTURE</div>
+        <div class="sec-eyebrow">ARCHITECTURE</div>
         <div class="sec-title">System Design</div>
 
         <div class="arch-block">
@@ -503,7 +502,7 @@
 <!-- ── 03 ASYNC FLOW ──────────────────────────────────────────────────── -->
 <div class="wrap">
     <div class="section" id="flow">
-        <div class="sec-eyebrow">// 03 — ASYNC ORDER FLOW</div>
+        <div class="sec-eyebrow">ASYNC ORDER FLOW</div>
         <div class="sec-title">How an Order Becomes a Payment</div>
 
         <div class="flow">
@@ -562,7 +561,7 @@
 <!-- ── 04 DESIGN DECISIONS ───────────────────────────────────────────── -->
 <div class="wrap">
     <div class="section" id="design">
-        <div class="sec-eyebrow">// 04 — DESIGN DECISIONS</div>
+        <div class="sec-eyebrow">DESIGN DECISIONS</div>
         <div class="sec-title">Why It's Built This Way</div>
 
         <div class="decisions">
@@ -598,7 +597,7 @@
 <!-- ── 05 STRUCTURE ──────────────────────────────────────────────────── -->
 <div class="wrap">
     <div class="section" id="structure">
-        <div class="sec-eyebrow">// 05 — REPO STRUCTURE</div>
+        <div class="sec-eyebrow">REPO STRUCTURE</div>
         <div class="sec-title">Repo Layout</div>
 
         <div class="tree">
@@ -624,43 +623,6 @@
 <span class="c-d">├──</span> <span class="c-a">docker-compose.yml</span>       <span class="c-d"># Full stack: services + Kafka + Zookeeper + Postgres</span>
 <span class="c-d">├──</span> go.mod
 <span class="c-d">└──</span> go.sum</pre>
-        </div>
-
-        <div class="code-block" style="margin-top:28px">
-            <div class="code-header">
-                <span class="code-lang">bash — run locally</span>
-                <div class="code-dots"><div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div></div>
-            </div>
-            <div class="code-body">
-        <pre><span class="c-d"># clone and start the full stack</span>
-git clone https://github.com/rubix1903/ecommerce-microservices
-cd ecommerce-microservices
-
-<span class="c-d"># spin up Kafka, Zookeeper, Postgres, and all 6 services</span>
-docker compose up --build
-
-<span class="c-d"># register a user</span>
-curl -X POST http://localhost:8080/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"secret123"}'
-
-<span class="c-d"># login and grab the JWT</span>
-TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"secret123"}' | jq -r .token)
-
-<span class="c-d"># add a product</span>
-curl -X POST http://localhost:8080/api/v1/products \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Mechanical Keyboard","price":129.99,"stock":10}'
-
-<span class="c-d"># place an order — returns 201 immediately, payment processes async</span>
-curl -X POST http://localhost:8080/api/v1/orders \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"product_id":1,"quantity":1}'</pre>
-            </div>
         </div>
     </div>
 </div>
